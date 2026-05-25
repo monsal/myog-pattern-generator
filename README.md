@@ -1,68 +1,60 @@
-# MYOG Pattern Generator
+# GearPattern
 
-An AI-powered pattern generator that turns your gear ideas into printable sewing patterns in minutes.
+A web app for designing, planning, and generating printable sewing patterns for
+outdoor gear — backpacks, stuff sacks, hip packs, frame bags, and other MYOG
+(Make Your Own Gear) projects in rigid technical fabrics (Dyneema DCF, X-Pac,
+Cordura).
 
-**"From idea to pattern in 5 minutes"** - No CAD skills required.
+## What it does
 
-## Features
+- **Real-world coordinates** — every pattern piece is stored and edited in
+  millimeters. Zoom and pan are display-only.
+- **2D editor** — drag, resize, dimension, and annotate pieces; see seam
+  allowance as a dashed inner offset, grain lines and notches as overlays.
+- **Tiled PDF print** — exports a multi-page 1:1 PDF tiled across A4 or A3 with
+  crop marks, alignment crosshairs, and a 50mm calibration square so you can
+  verify your printer isn't scaling.
+- **Seam connections** — click edge to edge to connect pieces; lengths are
+  validated live (green / amber / red) and surfaced in the right sidebar.
+- **3D preview** — rigid panel assembly preview alongside the 2D canvas (Phase
+  2 will swap in a full Three.js scene).
+- **AI photo analysis** — upload 1–4 photos of an existing bag; the app calls
+  Claude vision (`claude-opus-4-5`) to identify the visible structural panels
+  and pre-populates the canvas with placeholder pieces that you correct with
+  real dimensions.
+- **Instructions builder** — ordered step list referencing the pieces involved.
+- **Materials library** — pre-seeded with common MYOG fabrics (X-Pac VX07/21,
+  DCF 0.51oz/1.0oz, Cordura 500D/1000D, HEX70, ripstop nylon 70D).
+- **Auto-save** — projects persist to browser storage as you work.
 
-- 🤖 **AI-First Design** - Describe what you want, AI generates the complete pattern
-- 📐 **Professional Patterns** - All pieces, seam allowances, notches, and assembly instructions
-- 🎨 **Interactive Preview** - See your pattern pieces before printing
-- 📄 **Print-Ready Export** - Multi-page PDF with registration marks (coming soon)
-- 💾 **Browser Storage** - Your patterns save automatically
+## Stack
 
-## Tech Stack
+Vite + React 19 + TypeScript, Tailwind v4, Zustand (persisted to
+`localStorage`), `pdf-lib` for client-side PDF generation, and a Vercel
+serverless function (`api/analyze-photos.ts`) that proxies the Claude vision
+call.
 
-- **Frontend**: React 18 + TypeScript + Vite
-- **Styling**: Tailwind CSS
-- **AI**: Claude API (Anthropic) + GPT-4 Vision (OpenAI)
-- **Canvas**: HTML5 Canvas for pattern rendering
-- **Deployment**: Vercel (frontend + serverless functions)
+## Getting started
 
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18+ and npm
-- Anthropic API key ([get one here](https://console.anthropic.com/))
-- OpenAI API key (optional, for image analysis) ([get one here](https://platform.openai.com/))
-
-### Installation
-
-1. Clone the repository:
-\`\`\`bash
-git clone https://github.com/monsal/myog-pattern-generator.git
-cd myog-pattern-generator
-\`\`\`
-
-2. Install dependencies:
-\`\`\`bash
+```bash
 npm install
-\`\`\`
-
-3. Set up environment variables:
-\`\`\`bash
-cp .env.example .env.local
-\`\`\`
-
-Edit \`.env.local\` and add your API keys:
-\`\`\`
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-OPENAI_API_KEY=your_openai_api_key_here
-\`\`\`
-
-4. Run the development server:
-\`\`\`bash
+cp .env.example .env.local   # add ANTHROPIC_API_KEY for photo analysis
 npm run dev
-\`\`\`
+```
 
-5. Open [http://localhost:5173](http://localhost:5173) in your browser
+Open http://localhost:5173.
 
-## License
+## Project structure
 
-MIT
+```
+src/
+  pages/            Dashboard, Editor, Instructions, Print
+  components/       Canvas, sidebars, toolstrip, photo sheet, 3D preview
+  lib/              units, geometry, pdf, ai client, seam validation
+  store/            Zustand store (projects, pieces, seams)
+  types.ts          domain model (mm-based)
+api/analyze-photos  Vercel function — Claude vision endpoint
+```
 
----
-
-**Made with ❤️ for the MYOG community**
+All dimensions everywhere are in millimeters. Pixel conversions live only in
+`src/lib/units.ts`.

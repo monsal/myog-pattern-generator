@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type {
   GearType,
+  Marking,
   PatternPiece,
   Project,
   SeamConnection,
@@ -9,6 +10,11 @@ import type {
 } from "../types";
 import { DEFAULT_MATERIALS } from "../types";
 import { rectPoints } from "../lib/geometry";
+
+type DistributiveOmit<T, K extends keyof any> = T extends unknown
+  ? Omit<T, K>
+  : never;
+export type MarkingInput = DistributiveOmit<Marking, "id">;
 
 export const uid = (prefix = "id") =>
   `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
@@ -32,6 +38,12 @@ type Store = {
     projectId: string,
     pieceId: string,
     fn: (p: PatternPiece) => void
+  ) => void;
+  addMarking: (
+    projectId: string,
+    pieceId: string,
+    marking: MarkingInput,
+    options?: { replaceKind?: Marking["kind"] }
   ) => void;
 
   // seams
@@ -169,6 +181,18 @@ export const useStore = create<Store>()(
         get().updateProject(projectId, (p) => {
           const piece = p.pieces.find((x) => x.id === pieceId);
           if (piece) fn(piece);
+        }),
+
+      addMarking: (projectId, pieceId, marking, options) =>
+        get().updateProject(projectId, (p) => {
+          const piece = p.pieces.find((x) => x.id === pieceId);
+          if (!piece) return;
+          if (options?.replaceKind) {
+            piece.markings = piece.markings.filter(
+              (m) => m.kind !== options.replaceKind
+            );
+          }
+          piece.markings.push({ ...marking, id: uid("mk") } as Marking);
         }),
 
       addSeam: (projectId, seam) =>

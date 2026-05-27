@@ -73,6 +73,79 @@ function normal(a: Point, b: Point, sign: number): Point {
   return { x: (-dy / len) * sign, y: (dx / len) * sign };
 }
 
+// Per-edge outward offset: each edge i gets its own distance distances[i].
+// Adjacent offset lines are intersected to produce the new vertex between
+// them. Falls back gracefully for near-parallel edges by clipping at the
+// original vertex offset by the average normal.
+export const offsetPolygonPerEdge = (pts: Point[], distances: number[]): Point[] => {
+  const n = pts.length;
+  if (n < 3) return pts;
+  // CCW sign
+  let signed = 0;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    signed += pts[i].x * pts[j].y - pts[j].x * pts[i].y;
+  }
+  const sign = signed > 0 ? 1 : -1;
+
+  // Outward unit normals per edge.
+  const edgeNormal = (i: number): Point => {
+    const a = pts[i];
+    const b = pts[(i + 1) % n];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    return { x: (-dy / len) * sign, y: (dx / len) * sign };
+  };
+
+  const out: Point[] = [];
+  for (let i = 0; i < n; i++) {
+    const prevIdx = (i - 1 + n) % n;
+    const n1 = edgeNormal(prevIdx);
+    const n2 = edgeNormal(i);
+    const d1 = distances[prevIdx] ?? 0;
+    const d2 = distances[i] ?? 0;
+    // The two offset lines:
+    //   line 1 passes through pts[i] + n1*d1, direction = pts[i+1?]-pts[prev]... no,
+    //   line 1 passes through pts[i] + n1*d1, direction = (pts[i] - pts[prev]).
+    const a1 = { x: pts[i].x + n1.x * d1, y: pts[i].y + n1.y * d1 };
+    const a2 = { x: pts[i].x + n2.x * d2, y: pts[i].y + n2.y * d2 };
+    const dir1 = {
+      x: pts[i].x - pts[prevIdx].x,
+      y: pts[i].y - pts[prevIdx].y,
+    };
+    const dir2 = {
+      x: pts[(i + 1) % n].x - pts[i].x,
+      y: pts[(i + 1) % n].y - pts[i].y,
+    };
+    // Intersect a1+t*dir1 == a2+s*dir2
+    const denom = dir1.x * dir2.y - dir1.y * dir2.x;
+    if (Math.abs(denom) < 1e-6) {
+      // near-parallel: use bisector of normals
+      const bx = n1.x + n2.x;
+      const by = n1.y + n2.y;
+      const blen = Math.hypot(bx, by) || 1;
+      const d = (d1 + d2) / 2;
+      out.push({ x: pts[i].x + (bx / blen) * d, y: pts[i].y + (by / blen) * d });
+      continue;
+    }
+    const dx = a2.x - a1.x;
+    const dy = a2.y - a1.y;
+    const t = (dx * dir2.y - dy * dir2.x) / denom;
+    out.push({ x: a1.x + dir1.x * t, y: a1.y + dir1.y * t });
+  }
+  return out;
+};
+
+// Resolves the array of per-edge SA values for a piece.
+export const pieceEdgeSeamAllowances = (
+  pts: Point[],
+  uniform: number,
+  overrides?: Record<number, number>
+): number[] => {
+  return pts.map((_, i) => overrides?.[i] ?? uniform);
+};
+
 export const rectPoints = (w: number, h: number): Point[] => [
   { x: 0, y: 0 },
   { x: w, y: 0 },

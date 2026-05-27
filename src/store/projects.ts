@@ -34,6 +34,12 @@ type Store = {
   // pieces
   addPiece: (projectId: string, piece?: Partial<PatternPiece>) => string;
   removePiece: (projectId: string, pieceId: string) => void;
+  duplicatePiece: (projectId: string, pieceId: string) => string;
+  mirrorPiece: (
+    projectId: string,
+    pieceId: string,
+    axis: "x" | "y"
+  ) => void;
   updatePiece: (
     projectId: string,
     pieceId: string,
@@ -175,6 +181,81 @@ export const useStore = create<Store>()(
           p.seams = p.seams.filter(
             (s) => s.fromPieceId !== pieceId && s.toPieceId !== pieceId
           );
+        }),
+
+      duplicatePiece: (projectId, pieceId) => {
+        let newId = "";
+        get().updateProject(projectId, (p) => {
+          const src = p.pieces.find((x) => x.id === pieceId);
+          if (!src) return;
+          const copy: PatternPiece = JSON.parse(JSON.stringify(src));
+          copy.id = uid("pc");
+          copy.name = `${src.name} copy`;
+          copy.position = { x: src.position.x + 40, y: src.position.y + 40 };
+          copy.markings = copy.markings.map((m) => ({ ...m, id: uid("mk") }));
+          p.pieces.push(copy);
+          newId = copy.id;
+        });
+        return newId;
+      },
+
+      mirrorPiece: (projectId, pieceId, axis) =>
+        get().updateProject(projectId, (p) => {
+          const piece = p.pieces.find((x) => x.id === pieceId);
+          if (!piece) return;
+          // Mirror the polygon around its own bounds. Reverse winding so
+          // outward normals stay consistent for seam-allowance offset.
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const pt of piece.points) {
+            if (pt.x < minX) minX = pt.x;
+            if (pt.x > maxX) maxX = pt.x;
+            if (pt.y < minY) minY = pt.y;
+            if (pt.y > maxY) maxY = pt.y;
+          }
+          const mirrored = piece.points
+            .map((pt) =>
+              axis === "x"
+                ? { x: maxX + minX - pt.x, y: pt.y }
+                : { x: pt.x, y: maxY + minY - pt.y }
+            )
+            .reverse();
+          piece.points = mirrored;
+          // Mirror markings.
+          piece.markings = piece.markings.map((m) => {
+            if (m.kind === "grain") {
+              return {
+                ...m,
+                position:
+                  axis === "x"
+                    ? { x: maxX + minX - m.position.x, y: m.position.y }
+                    : { x: m.position.x, y: maxY + minY - m.position.y },
+                angle: -m.angle,
+              };
+            }
+            if (m.kind === "notch") {
+              return {
+                ...m,
+                position:
+                  axis === "x"
+                    ? { x: maxX + minX - m.position.x, y: m.position.y }
+                    : { x: m.position.x, y: maxY + minY - m.position.y },
+              };
+            }
+            return m;
+          });
+          // Per-edge SA: reversing the polygon reorders edges; rebuild map.
+          if (piece.edgeSeamAllowances) {
+            const n = piece.points.length;
+            const old = piece.edgeSeamAllowances;
+            const next: Record<number, number> = {};
+            for (const [k, v] of Object.entries(old)) {
+              const oldEdge = Number(k);
+              // edge i in the reversed polygon maps to (n - 2 - i) in the original
+              const newEdge = (n - 2 - oldEdge + n) % n;
+              next[newEdge] = v;
+            }
+            piece.edgeSeamAllowances = next;
+          }
         }),
 
       updatePiece: (projectId, pieceId, fn) =>

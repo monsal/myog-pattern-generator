@@ -20,6 +20,7 @@ export default function Editor() {
   const removePiece = useStore((s) => s.removePiece);
   const [tool, setTool] = useState<Tool>("select");
   const [selectedPieceId, setSelectedPieceId] = useState<string | null>(null);
+  const [selectedSeamId, setSelectedSeamId] = useState<string | null>(null);
   const [view, setView] = useState<"2d" | "3d" | "both">("both");
   const [showAi, setShowAi] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -135,12 +136,22 @@ export default function Editor() {
                   : "hidden lg:block h-full w-[34%] xl:w-[38%] min-w-[280px]"
               }
             >
-              <Preview3D project={project} selectedPieceId={selectedPieceId} />
+              <Preview3D
+                project={project}
+                selectedPieceId={selectedPieceId}
+                selectedSeamId={selectedSeamId}
+              />
             </div>
           )}
         </div>
 
-        <RightSidebar project={project} piece={piece} />
+        <RightSidebar
+          project={project}
+          piece={piece}
+          selectedSeamId={selectedSeamId}
+          onSelectSeam={setSelectedSeamId}
+          onSelectPiece={setSelectedPieceId}
+        />
       </div>
 
       <StatusBar project={project} piece={piece} savedAt={project.updatedAt} />

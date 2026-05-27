@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PatternPiece, Point, Project } from "../types";
 import { mmToPx, pxToMm, PAPER_MM } from "../lib/units";
-import { offsetPolygon, edgeLength, polygonBounds } from "../lib/geometry";
+import {
+  offsetPolygon,
+  offsetPolygonPerEdge,
+  pieceEdgeSeamAllowances,
+  edgeLength,
+  polygonBounds,
+} from "../lib/geometry";
 import { edgeStatus } from "../lib/seams";
 import { useStore } from "../store/projects";
 
@@ -448,7 +454,17 @@ export default function Canvas({ project, tool, selectedPieceId, onSelect }: Pro
             .map((pt) => toScreen(pt.x + piece.position.x, pt.y + piece.position.y))
             .map((p) => `${p.x},${p.y}`)
             .join(" ");
-          const inner = offsetPolygon(piece.points, -piece.seamAllowance)
+          const edgeSA = pieceEdgeSeamAllowances(
+            piece.points,
+            piece.seamAllowance,
+            piece.edgeSeamAllowances
+          );
+          const hasPerEdge = edgeSA.some((d) => d !== piece.seamAllowance);
+          const inner = (
+            hasPerEdge
+              ? offsetPolygonPerEdge(piece.points, edgeSA.map((d) => -d))
+              : offsetPolygon(piece.points, -piece.seamAllowance)
+          )
             .map((pt) => toScreen(pt.x + piece.position.x, pt.y + piece.position.y))
             .map((p) => `${p.x},${p.y}`)
             .join(" ");

@@ -15,7 +15,7 @@ export default function RightSidebar({
 
   if (!piece) {
     return (
-      <aside className="w-[256px] shrink-0 h-full p-3 z-10">
+      <aside className="hidden md:block w-[220px] lg:w-[256px] shrink-0 h-full p-3 z-10">
         <div className="glass rounded-2xl p-6 text-sm text-[color:var(--color-ink-3)] text-center">
           Select a pattern piece to edit its properties.
         </div>
@@ -38,7 +38,7 @@ export default function RightSidebar({
   const hasNotch = piece.markings.some((m) => m.kind === "notch");
 
   return (
-    <aside className="w-[256px] shrink-0 h-full p-3 overflow-y-auto z-10">
+    <aside className="hidden md:block w-[220px] lg:w-[256px] shrink-0 h-full p-3 overflow-y-auto z-10">
       <div className="glass rounded-2xl p-4 flex flex-col gap-4">
         <div>
           <label className="label">Name</label>

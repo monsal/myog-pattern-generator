@@ -230,6 +230,17 @@ export default function Canvas({ project, tool, selectedPieceId, onSelect }: Pro
         commitDraft(tool);
         return;
       }
+      // Click within 8px of the first vertex closes the shape.
+      if (draftPoints.length >= 3) {
+        const first = draftPoints[0];
+        const firstScreen = toScreen(first.x, first.y);
+        const dx = sx - firstScreen.x;
+        const dy = sy - firstScreen.y;
+        if (Math.hypot(dx, dy) <= 8) {
+          commitDraft(tool);
+          return;
+        }
+      }
       setDraftPoints((d) => [...d, m]);
       return;
     }
@@ -592,16 +603,30 @@ export default function Canvas({ project, tool, selectedPieceId, onSelect }: Pro
             />
             {draftPoints.map((p, i) => {
               const s = toScreen(p.x, p.y);
+              const isFirst = i === 0;
+              const closable = isFirst && draftPoints.length >= 3;
               return (
-                <circle
-                  key={i}
-                  cx={s.x}
-                  cy={s.y}
-                  r={i === 0 ? 5 : 3}
-                  fill={i === 0 ? "#5B4FCF" : "white"}
-                  stroke="#5B4FCF"
-                  strokeWidth={1.5}
-                />
+                <g key={i}>
+                  {closable && (
+                    <circle
+                      cx={s.x}
+                      cy={s.y}
+                      r={10}
+                      fill="rgba(91,79,207,0.18)"
+                      stroke="#5B4FCF"
+                      strokeWidth={1}
+                      strokeDasharray="2 2"
+                    />
+                  )}
+                  <circle
+                    cx={s.x}
+                    cy={s.y}
+                    r={closable ? 6 : isFirst ? 5 : 3}
+                    fill={isFirst ? "#5B4FCF" : "white"}
+                    stroke="#5B4FCF"
+                    strokeWidth={1.5}
+                  />
+                </g>
               );
             })}
           </g>
@@ -676,6 +701,48 @@ export default function Canvas({ project, tool, selectedPieceId, onSelect }: Pro
         <div className="absolute top-20 left-1/2 -translate-x-1/2 glass rounded-2xl px-4 py-2 text-sm text-[color:var(--color-ink-2)]">
           Click an edge on another piece to connect…{" "}
           <button className="btn-ghost btn ml-2" onClick={() => setPendingSeam(null)}>Cancel</button>
+        </div>
+      )}
+
+      {(tool === "polygon" || tool === "pen") && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 glass rounded-2xl px-4 py-2 text-sm text-[color:var(--color-ink-2)] flex items-center gap-3">
+          <span>
+            {draftPoints.length === 0
+              ? `Click on the canvas to start drawing ${tool === "pen" ? "a curved" : "a"} shape`
+              : draftPoints.length < 3
+              ? `${draftPoints.length} point${draftPoints.length === 1 ? "" : "s"} — keep clicking`
+              : `${draftPoints.length} points — click the first point or press Enter to close`}
+          </span>
+          {draftPoints.length > 0 && (
+            <button
+              className="btn-ghost btn"
+              onClick={() => setDraftPoints([])}
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      )}
+
+      {tool === "measure" && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 glass rounded-2xl px-4 py-2 text-sm text-[color:var(--color-ink-2)]">
+          {!measure
+            ? "Click two points to measure a distance"
+            : measure.frozen
+            ? "Click again to start a new measurement · Esc to clear"
+            : "Click the end point…"}
+        </div>
+      )}
+
+      {tool === "notch" && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 glass rounded-2xl px-4 py-2 text-sm text-[color:var(--color-ink-2)]">
+          Click near a piece edge to place a notch
+        </div>
+      )}
+
+      {tool === "grain" && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 glass rounded-2xl px-4 py-2 text-sm text-[color:var(--color-ink-2)]">
+          Click inside a piece to set its grain line
         </div>
       )}
     </div>

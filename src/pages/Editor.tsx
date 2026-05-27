@@ -121,7 +121,7 @@ export default function Editor() {
           )}
           {view !== "2d" && (
             <div style={{ width: view === "3d" ? "100%" : "38%" }} className="h-full">
-              <Preview3D project={project} />
+              <Preview3D project={project} selectedPieceId={selectedPieceId} />
             </div>
           )}
         </div>

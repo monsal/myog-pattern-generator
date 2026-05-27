@@ -45,7 +45,7 @@ export default function Preview3D({ project, selectedPieceId, selectedSeamId }: 
       1,
       10000
     );
-    camera.position.set(900, 700, 900);
+    camera.position.set(1800, 1400, 1800);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -138,11 +138,19 @@ export default function Preview3D({ project, selectedPieceId, selectedSeamId }: 
       const centre = new THREE.Vector3();
       box.getSize(size);
       box.getCenter(centre);
-      const radius = Math.max(size.x, size.y, size.z) * 0.9 + 200;
+      // Frame the assembly with comfortable headroom — 2.4× max bound + a
+      // floor so a single small piece doesn't lock the camera in close.
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const radius = Math.max(800, maxDim * 2.4);
       const dir = camera.position.clone().sub(controls.target).normalize();
+      // Ensure direction is sane; if the camera was placed at the same point
+      // as the target (very first frame), fall back to a standard 3/4 view.
+      if (!isFinite(dir.x) || dir.lengthSq() < 0.001) {
+        dir.set(0.55, 0.5, 0.55).normalize();
+      }
       controls.target.copy(centre);
       camera.position.copy(centre.clone().add(dir.multiplyScalar(radius)));
-      camera.near = Math.max(1, radius / 100);
+      camera.near = Math.max(1, radius / 200);
       camera.far = radius * 20;
       camera.updateProjectionMatrix();
     }

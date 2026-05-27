@@ -20,6 +20,7 @@ export default function Editor() {
   const removePiece = useStore((s) => s.removePiece);
   const [tool, setTool] = useState<Tool>("select");
   const [selectedPieceId, setSelectedPieceId] = useState<string | null>(null);
+  const [selectedSeamId, setSelectedSeamId] = useState<string | null>(null);
   const [view, setView] = useState<"2d" | "3d" | "both">("both");
   const [showAi, setShowAi] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -68,7 +69,11 @@ export default function Editor() {
             })
           }
         />
-        <button className="btn btn-ghost" onClick={() => setShowAi(true)}>
+        <button
+          className="btn btn-ghost hidden sm:inline-flex"
+          onClick={() => setShowAi(true)}
+          title="Analyse photo"
+        >
           <span className="ai-grad bg-clip-text text-transparent">✦ Analyse photo</span>
         </button>
         <button
@@ -79,10 +84,14 @@ export default function Editor() {
             });
             setSelectedPieceId(id);
           }}
+          title="Add rectangle piece (or use the polygon / pen tool to draw)"
         >
           + Add piece
         </button>
-        <Link to={`/projects/${project.id}/instructions`} className="btn btn-ghost">
+        <Link
+          to={`/projects/${project.id}/instructions`}
+          className="btn btn-ghost hidden lg:inline-flex"
+        >
           Instructions
         </Link>
         <button
@@ -110,7 +119,7 @@ export default function Editor() {
           <CanvasToolbar project={project} view={view} onViewChange={setView} />
 
           {view !== "3d" && (
-            <div className={view === "both" ? "flex-1 relative" : "flex-1 relative"}>
+            <div className="flex-1 relative min-w-0">
               <Canvas
                 project={project}
                 tool={tool}
@@ -120,13 +129,29 @@ export default function Editor() {
             </div>
           )}
           {view !== "2d" && (
-            <div style={{ width: view === "3d" ? "100%" : "38%" }} className="h-full">
-              <Preview3D project={project} selectedPieceId={selectedPieceId} />
+            <div
+              className={
+                view === "3d"
+                  ? "w-full h-full"
+                  : "hidden lg:block h-full w-[34%] xl:w-[38%] min-w-[280px]"
+              }
+            >
+              <Preview3D
+                project={project}
+                selectedPieceId={selectedPieceId}
+                selectedSeamId={selectedSeamId}
+              />
             </div>
           )}
         </div>
 
-        <RightSidebar project={project} piece={piece} />
+        <RightSidebar
+          project={project}
+          piece={piece}
+          selectedSeamId={selectedSeamId}
+          onSelectSeam={setSelectedSeamId}
+          onSelectPiece={setSelectedPieceId}
+        />
       </div>
 
       <StatusBar project={project} piece={piece} savedAt={project.updatedAt} />

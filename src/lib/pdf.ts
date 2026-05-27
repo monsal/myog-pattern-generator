@@ -1,7 +1,25 @@
 import type { PDFPage } from "pdf-lib";
 import type { PatternPiece, Project } from "../types";
 import { PAPER_MM, mmToPt } from "./units";
-import { offsetPolygon, pieceBounds, polygonBounds } from "./geometry";
+import {
+  offsetPolygon,
+  offsetPolygonPerEdge,
+  pieceEdgeSeamAllowances,
+  pieceBounds,
+  polygonBounds,
+} from "./geometry";
+
+const pieceOuter = (piece: PatternPiece) => {
+  const distances = pieceEdgeSeamAllowances(
+    piece.points,
+    piece.seamAllowance,
+    piece.edgeSeamAllowances
+  );
+  const uniform = distances.every((d) => d === piece.seamAllowance);
+  return uniform
+    ? offsetPolygon(piece.points, piece.seamAllowance)
+    : offsetPolygonPerEdge(piece.points, distances);
+};
 
 // pdf-lib is lazy-loaded inside `exportProjectPdf` so the dashboard and editor
 // don't pay for ~300kB until the user actually clicks "Export PDF".
@@ -25,8 +43,7 @@ function tileLayout(
   marginMm: number
 ): TileLayout {
   // outline + seam allowance bounds (mm)
-  const sa = piece.seamAllowance;
-  const outer = offsetPolygon(piece.points, sa);
+  const outer = pieceOuter(piece);
   const all = [...piece.points, ...outer];
   const b = polygonBounds(all);
   const usableW = paperWmm - 2 * marginMm;
@@ -108,7 +125,7 @@ export async function exportProjectPdf(project: Project): Promise<Uint8Array> {
   for (const piece of project.pieces) {
     const sa = piece.seamAllowance;
     const cutLine = piece.points;
-    const outerLine = offsetPolygon(cutLine, sa);
+    const outerLine = pieceOuter(piece);
     const allPts = [...cutLine, ...outerLine];
     const b = polygonBounds(allPts);
     const layout = tileLayout(piece, paperWmm, paperHmm, overlap, margin);

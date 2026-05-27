@@ -34,7 +34,7 @@ export default function LeftSidebar({
   }
 
   return (
-    <aside className="w-[220px] shrink-0 h-full p-3 flex flex-col gap-3 z-10">
+    <aside className="hidden md:flex w-[200px] lg:w-[220px] shrink-0 h-full p-3 flex-col gap-3 z-10 overflow-y-auto">
       <div className="glass rounded-2xl p-3">
         <div className="label mb-2">Pieces</div>
         <div className="flex flex-col gap-1">

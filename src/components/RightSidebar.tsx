@@ -6,16 +6,24 @@ import { useStore, uid } from "../store/projects";
 export default function RightSidebar({
   project,
   piece,
+  selectedSeamId,
+  onSelectSeam,
+  onSelectPiece,
 }: {
   project: Project;
   piece: PatternPiece | null;
+  selectedSeamId?: string | null;
+  onSelectSeam?: (id: string | null) => void;
+  onSelectPiece?: (id: string | null) => void;
 }) {
   const updatePiece = useStore((s) => s.updatePiece);
   const removeSeam = useStore((s) => s.removeSeam);
+  const duplicatePiece = useStore((s) => s.duplicatePiece);
+  const mirrorPiece = useStore((s) => s.mirrorPiece);
 
   if (!piece) {
     return (
-      <aside className="w-[256px] shrink-0 h-full p-3 z-10">
+      <aside className="hidden md:block w-[220px] lg:w-[256px] shrink-0 h-full p-3 z-10">
         <div className="glass rounded-2xl p-6 text-sm text-[color:var(--color-ink-3)] text-center">
           Select a pattern piece to edit its properties.
         </div>
@@ -38,7 +46,7 @@ export default function RightSidebar({
   const hasNotch = piece.markings.some((m) => m.kind === "notch");
 
   return (
-    <aside className="w-[256px] shrink-0 h-full p-3 overflow-y-auto z-10">
+    <aside className="hidden md:block w-[220px] lg:w-[256px] shrink-0 h-full p-3 overflow-y-auto z-10">
       <div className="glass rounded-2xl p-4 flex flex-col gap-4">
         <div>
           <label className="label">Name</label>
@@ -56,6 +64,32 @@ export default function RightSidebar({
               AI ✦ verify real dimensions
             </div>
           )}
+          <div className="flex gap-1 mt-3">
+            <button
+              className="btn btn-ghost !py-1 !px-2 text-xs"
+              title="Duplicate (offset 40mm)"
+              onClick={() => {
+                const id = duplicatePiece(project.id, piece.id);
+                if (id && onSelectPiece) onSelectPiece(id);
+              }}
+            >
+              ⧉ Duplicate
+            </button>
+            <button
+              className="btn btn-ghost !py-1 !px-2 text-xs"
+              title="Mirror horizontally"
+              onClick={() => mirrorPiece(project.id, piece.id, "x")}
+            >
+              ⇋ Mirror H
+            </button>
+            <button
+              className="btn btn-ghost !py-1 !px-2 text-xs"
+              title="Mirror vertically"
+              onClick={() => mirrorPiece(project.id, piece.id, "y")}
+            >
+              ⥯ Mirror V
+            </button>
+          </div>
         </div>
 
         <div>
@@ -171,7 +205,10 @@ export default function RightSidebar({
         </div>
 
         <div>
-          <label className="label">Seam connections</label>
+          <label className="label">Edges · seam allowance & connections</label>
+          <div className="text-[10px] text-[color:var(--color-ink-3)] mb-1">
+            SA defaults to the piece value; override per edge if needed.
+          </div>
           <div className="flex flex-col gap-1.5 mt-1">
             {piece.points.map((_, i) => {
               const info = edgeStatus(project, piece.id, i);
@@ -186,42 +223,98 @@ export default function RightSidebar({
                   : info.status === "bad"
                   ? "var(--color-bad)"
                   : "var(--color-ink-3)";
+              const seam = project.seams.find(
+                (s) =>
+                  (s.fromPieceId === piece.id && s.fromEdge === i) ||
+                  (s.toPieceId === piece.id && s.toEdge === i)
+              );
+              const isSelectedSeam = seam && seam.id === selectedSeamId;
+              const edgeSa = piece.edgeSeamAllowances?.[i];
               return (
                 <div
                   key={i}
-                  className="flex items-center gap-2 text-[12px] rounded-lg px-2 py-1 bg-black/[0.02]"
+                  className={`rounded-lg px-2 py-1 text-[12px] spring ${
+                    isSelectedSeam
+                      ? "bg-[color:var(--color-accent-soft)] ring-1 ring-[color:var(--color-accent)]"
+                      : "bg-black/[0.02] hover:bg-black/[0.04]"
+                  }`}
                 >
-                  <span className="mono text-[10px] text-[color:var(--color-ink-3)] w-8">
-                    e{i}
-                  </span>
-                  <span className="mono text-[11px]">{info.length.toFixed(0)}</span>
-                  <span className="flex-1 truncate text-[color:var(--color-ink-2)]">
-                    {target ? `→ ${target.name} e${info.connectedTo?.edge}` : "—"}
-                  </span>
-                  <span
-                    className="w-2 h-2 rounded-full"
-                    style={{ background: color }}
-                    title={
-                      info.delta !== undefined
-                        ? `Δ ${info.delta.toFixed(1)}mm`
-                        : "unconnected"
-                    }
-                  />
-                  {target && (
-                    <button
-                      className="text-[color:var(--color-ink-3)] hover:text-[color:var(--color-bad)] text-xs"
-                      onClick={() => {
-                        const seam = project.seams.find(
-                          (s) =>
-                            (s.fromPieceId === piece.id && s.fromEdge === i) ||
-                            (s.toPieceId === piece.id && s.toEdge === i)
-                        );
-                        if (seam) removeSeam(project.id, seam.id);
-                      }}
-                    >
-                      ×
-                    </button>
-                  )}
+                  <div
+                    className={`flex items-center gap-2 ${
+                      seam ? "cursor-pointer" : ""
+                    }`}
+                    onClick={() => {
+                      if (seam && onSelectSeam) {
+                        onSelectSeam(isSelectedSeam ? null : seam.id);
+                      }
+                    }}
+                  >
+                    <span className="mono text-[10px] text-[color:var(--color-ink-3)] w-7">
+                      e{i}
+                    </span>
+                    <span className="mono text-[11px]">
+                      {info.length.toFixed(0)}
+                    </span>
+                    <span className="flex-1 truncate text-[color:var(--color-ink-2)]">
+                      {target ? `→ ${target.name} e${info.connectedTo?.edge}` : "—"}
+                    </span>
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ background: color }}
+                      title={
+                        info.delta !== undefined
+                          ? `Δ ${info.delta.toFixed(1)}mm`
+                          : "unconnected"
+                      }
+                    />
+                    {target && (
+                      <button
+                        className="text-[color:var(--color-ink-3)] hover:text-[color:var(--color-bad)] text-xs px-0.5"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (seam) removeSeam(project.id, seam.id);
+                        }}
+                        title="Remove connection"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-1 pl-7">
+                    <span className="text-[10px] text-[color:var(--color-ink-3)]">
+                      SA
+                    </span>
+                    <input
+                      type="number"
+                      className="field !py-0.5 !px-1.5 !text-[11px] w-14"
+                      placeholder={String(piece.seamAllowance)}
+                      value={edgeSa ?? ""}
+                      onChange={(e) =>
+                        updatePiece(project.id, piece.id, (p) => {
+                          const v = e.target.value;
+                          if (!p.edgeSeamAllowances) p.edgeSeamAllowances = {};
+                          if (v === "") delete p.edgeSeamAllowances[i];
+                          else p.edgeSeamAllowances[i] = parseFloat(v);
+                        })
+                      }
+                    />
+                    <span className="text-[10px] text-[color:var(--color-ink-3)]">
+                      mm
+                    </span>
+                    {edgeSa !== undefined && (
+                      <button
+                        className="text-[10px] text-[color:var(--color-ink-3)] hover:text-[color:var(--color-accent)]"
+                        onClick={() =>
+                          updatePiece(project.id, piece.id, (p) => {
+                            if (p.edgeSeamAllowances) delete p.edgeSeamAllowances[i];
+                          })
+                        }
+                        title="Reset to piece default"
+                      >
+                        reset
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}

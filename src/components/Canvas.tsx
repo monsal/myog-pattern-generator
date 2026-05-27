@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { PatternPiece, Project } from "../types";
+import type { PatternPiece, Point, Project } from "../types";
 import { mmToPx, pxToMm, PAPER_MM } from "../lib/units";
 import { offsetPolygon, edgeLength, polygonBounds } from "../lib/geometry";
 import { edgeStatus } from "../lib/seams";
@@ -37,8 +37,14 @@ export default function Canvas({ project, tool, selectedPieceId, onSelect }: Pro
     | null
   >(null);
   const [pendingSeam, setPendingSeam] = useState<PendingSeam>(null);
+  // Tool-specific transient state. All in mm in piece-world coords.
+  const [draftPoints, setDraftPoints] = useState<Point[]>([]);
+  const [cursorMm, setCursorMm] = useState<Point | null>(null);
+  const [measure, setMeasure] = useState<{ from: Point; to: Point; frozen: boolean } | null>(null);
   const updatePiece = useStore((s) => s.updatePiece);
   const addSeam = useStore((s) => s.addSeam);
+  const addPiece = useStore((s) => s.addPiece);
+  const addMarking = useStore((s) => s.addMarking);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -58,6 +64,69 @@ export default function Canvas({ project, tool, selectedPieceId, onSelect }: Pro
     setPan({ x: size.w / 2 - mmToPx(PAPER_MM.A4.w / 2, zoom), y: 60 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [size.h]);
+
+  // Clear transient drafts when switching tool.
+  useEffect(() => {
+    setDraftPoints([]);
+    setMeasure(null);
+    setPendingSeam(null);
+  }, [tool]);
+
+  // Commit a polygon/pen draft into a new piece.
+  const commitDraft = (mode: "polygon" | "pen") => {
+    if (draftPoints.length < 3) {
+      setDraftPoints([]);
+      return;
+    }
+    let pts = draftPoints;
+    if (mode === "pen") {
+      // Sample each consecutive pair as a quadratic Bezier using the midpoints
+      // as anchors and the original vertices as controls. Produces visibly
+      // curved segments while keeping the polygon data model.
+      const sampled: Point[] = [];
+      const samplesPerEdge = 12;
+      for (let i = 0; i < pts.length; i++) {
+        const p0 = pts[i];
+        const p1 = pts[(i + 1) % pts.length];
+        const p2 = pts[(i + 2) % pts.length];
+        const a = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+        const c = p1;
+        const b = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+        for (let t = 0; t < samplesPerEdge; t++) {
+          const u = t / samplesPerEdge;
+          const x = (1 - u) * (1 - u) * a.x + 2 * (1 - u) * u * c.x + u * u * b.x;
+          const y = (1 - u) * (1 - u) * a.y + 2 * (1 - u) * u * c.y + u * u * b.y;
+          sampled.push({ x, y });
+        }
+      }
+      pts = sampled;
+    }
+    const b = polygonBounds(pts);
+    const local = pts.map((p) => ({ x: p.x - b.minX, y: p.y - b.minY }));
+    const id = addPiece(project.id, {
+      points: local,
+      position: { x: b.minX, y: b.minY },
+      name: mode === "pen" ? "Curved piece" : "Polygon",
+    });
+    setDraftPoints([]);
+    onSelect(id);
+  };
+
+  // Keyboard: Enter / Escape for drafts and measure.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (draftPoints.length) setDraftPoints([]);
+        if (measure) setMeasure(null);
+        if (pendingSeam) setPendingSeam(null);
+      } else if (e.key === "Enter") {
+        if (tool === "polygon" || tool === "pen") commitDraft(tool);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tool, draftPoints, measure, pendingSeam]);
 
   const toScreen = (xMm: number, yMm: number) => ({
     x: pan.x + mmToPx(xMm, zoom),
@@ -83,6 +152,60 @@ export default function Canvas({ project, tool, selectedPieceId, onSelect }: Pro
     }
   };
 
+  const screenToMm = (sx: number, sy: number): Point => ({
+    x: pxToMm(sx - pan.x, zoom),
+    y: pxToMm(sy - pan.y, zoom),
+  });
+
+  // Find which piece (if any) contains a world-mm point. Pieces are convex in
+  // practice in the editor, so a bounds + winding test is sufficient.
+  const pieceAt = (m: Point): PatternPiece | null => {
+    for (let i = project.pieces.length - 1; i >= 0; i--) {
+      const piece = project.pieces[i];
+      const world = piece.points.map((p) => ({
+        x: p.x + piece.position.x,
+        y: p.y + piece.position.y,
+      }));
+      if (pointInPolygon(m, world)) return piece;
+    }
+    return null;
+  };
+
+  // Project a world-mm point onto a piece's nearest edge. Returns the piece,
+  // edge index, projected world-mm point, and distance to that point in mm.
+  const projectToEdge = (m: Point) => {
+    let best: {
+      piece: PatternPiece;
+      edge: number;
+      world: Point;
+      local: Point;
+      dist: number;
+    } | null = null;
+    for (const piece of project.pieces) {
+      for (let i = 0; i < piece.points.length; i++) {
+        const a = {
+          x: piece.points[i].x + piece.position.x,
+          y: piece.points[i].y + piece.position.y,
+        };
+        const b = {
+          x: piece.points[(i + 1) % piece.points.length].x + piece.position.x,
+          y: piece.points[(i + 1) % piece.points.length].y + piece.position.y,
+        };
+        const proj = projectPointOnSegment(m, a, b);
+        if (!best || proj.dist < best.dist) {
+          best = {
+            piece,
+            edge: i,
+            world: proj.point,
+            local: { x: proj.point.x - piece.position.x, y: proj.point.y - piece.position.y },
+            dist: proj.dist,
+          };
+        }
+      }
+    }
+    return best;
+  };
+
   const onMouseDown = (e: React.MouseEvent) => {
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -93,12 +216,77 @@ export default function Canvas({ project, tool, selectedPieceId, onSelect }: Pro
     }
   };
 
+  // Canvas-level click handler for tool actions that don't drag.
+  const onCanvasClick = (e: React.MouseEvent) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const m = screenToMm(sx, sy);
+
+    if (tool === "polygon" || tool === "pen") {
+      // Double-click commits.
+      if (e.detail >= 2) {
+        commitDraft(tool);
+        return;
+      }
+      setDraftPoints((d) => [...d, m]);
+      return;
+    }
+    if (tool === "measure") {
+      if (!measure || measure.frozen) {
+        setMeasure({ from: m, to: m, frozen: false });
+      } else {
+        setMeasure({ ...measure, to: m, frozen: true });
+      }
+      return;
+    }
+    if (tool === "notch") {
+      const hit = projectToEdge(m);
+      // Accept clicks within 8 px of an edge.
+      const tolMm = pxToMm(8, zoom);
+      if (hit && hit.dist <= tolMm) {
+        addMarking(project.id, hit.piece.id, {
+          kind: "notch",
+          position: hit.local,
+        });
+        onSelect(hit.piece.id);
+      }
+      return;
+    }
+    if (tool === "grain") {
+      const piece = pieceAt(m);
+      if (piece) {
+        addMarking(
+          project.id,
+          piece.id,
+          {
+            kind: "grain",
+            angle: 0,
+            position: { x: m.x - piece.position.x, y: m.y - piece.position.y },
+          },
+          { replaceKind: "grain" }
+        );
+        onSelect(piece.id);
+      }
+      return;
+    }
+    // Plain clear-selection click on background:
+    if (e.target === containerRef.current) onSelect(null);
+  };
+
   const onMouseMove = (e: React.MouseEvent) => {
-    if (!dragging) return;
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+    // Always update cursor mm position so tool overlays can track it.
+    const m = screenToMm(x, y);
+    if (tool === "polygon" || tool === "pen") setCursorMm(m);
+    if (tool === "measure" && measure && !measure.frozen) {
+      setMeasure({ ...measure, to: m });
+    }
+    if (!dragging) return;
     if (dragging.kind === "pan") {
       setPan({ x: dragging.px + (x - dragging.sx), y: dragging.py + (y - dragging.sy) });
     } else if (dragging.kind === "move") {
@@ -203,10 +391,14 @@ export default function Canvas({ project, tool, selectedPieceId, onSelect }: Pro
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
       onMouseLeave={onMouseUp}
-      onClick={(e) => {
-        if (e.target === containerRef.current) onSelect(null);
+      onClick={onCanvasClick}
+      onDoubleClick={(e) => {
+        if (tool === "polygon" || tool === "pen") {
+          e.preventDefault();
+          commitDraft(tool);
+        }
       }}
-      style={{ cursor: tool === "pan" ? "grab" : "default" }}
+      style={{ cursor: toolCursor(tool) }}
     >
       <svg width={size.w} height={size.h} className="absolute inset-0 pointer-events-none">
         {/* paper rectangle hint */}
@@ -383,6 +575,76 @@ export default function Canvas({ project, tool, selectedPieceId, onSelect }: Pro
             </g>
           );
         })}
+        {/* Draft polygon / pen overlay */}
+        {(tool === "polygon" || tool === "pen") && draftPoints.length > 0 && (
+          <g>
+            <polyline
+              points={[
+                ...draftPoints.map((p) => toScreen(p.x, p.y)),
+                ...(cursorMm ? [toScreen(cursorMm.x, cursorMm.y)] : []),
+              ]
+                .map((p) => `${p.x},${p.y}`)
+                .join(" ")}
+              fill="none"
+              stroke="#5B4FCF"
+              strokeDasharray="5 3"
+              strokeWidth={1.5}
+            />
+            {draftPoints.map((p, i) => {
+              const s = toScreen(p.x, p.y);
+              return (
+                <circle
+                  key={i}
+                  cx={s.x}
+                  cy={s.y}
+                  r={i === 0 ? 5 : 3}
+                  fill={i === 0 ? "#5B4FCF" : "white"}
+                  stroke="#5B4FCF"
+                  strokeWidth={1.5}
+                />
+              );
+            })}
+          </g>
+        )}
+
+        {/* Measure overlay */}
+        {tool === "measure" && measure && (() => {
+          const a = toScreen(measure.from.x, measure.from.y);
+          const b = toScreen(measure.to.x, measure.to.y);
+          const len = Math.hypot(measure.to.x - measure.from.x, measure.to.y - measure.from.y);
+          const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+          return (
+            <g>
+              <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#3D6B8F" strokeWidth={1.5} />
+              <line x1={a.x - 5} y1={a.y - 5} x2={a.x + 5} y2={a.y + 5} stroke="#3D6B8F" strokeWidth={1.5} />
+              <line x1={a.x - 5} y1={a.y + 5} x2={a.x + 5} y2={a.y - 5} stroke="#3D6B8F" strokeWidth={1.5} />
+              <line x1={b.x - 5} y1={b.y - 5} x2={b.x + 5} y2={b.y + 5} stroke="#3D6B8F" strokeWidth={1.5} />
+              <line x1={b.x - 5} y1={b.y + 5} x2={b.x + 5} y2={b.y - 5} stroke="#3D6B8F" strokeWidth={1.5} />
+              <rect
+                x={mid.x - 30}
+                y={mid.y - 18}
+                width={60}
+                height={18}
+                rx={8}
+                fill="white"
+                stroke="#3D6B8F"
+                strokeWidth={0.8}
+              />
+              <text
+                x={mid.x}
+                y={mid.y - 5}
+                textAnchor="middle"
+                fontSize="11"
+                fontFamily="DM Mono"
+                fontWeight={600}
+                fill="#3D6B8F"
+              >
+                {len.toFixed(1)} mm
+              </text>
+            </g>
+          );
+        })()}
+
         <defs>
           <linearGradient id="aiGrad" x1="0" y1="0" x2="1" y2="1">
             <stop offset="0%" stopColor="#5B4FCF" />
@@ -518,4 +780,46 @@ function renderDims(
       })}
     </>
   );
+}
+
+function toolCursor(tool: Tool): string {
+  switch (tool) {
+    case "pan":
+      return "grab";
+    case "polygon":
+    case "pen":
+    case "measure":
+    case "notch":
+    case "grain":
+    case "seam":
+      return "crosshair";
+    default:
+      return "default";
+  }
+}
+
+function pointInPolygon(p: Point, poly: Point[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x;
+    const yi = poly[i].y;
+    const xj = poly[j].x;
+    const yj = poly[j].y;
+    const intersect =
+      yi > p.y !== yj > p.y &&
+      p.x < ((xj - xi) * (p.y - yi)) / (yj - yi + 1e-9) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function projectPointOnSegment(p: Point, a: Point, b: Point) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lenSq = dx * dx + dy * dy || 1;
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  const point = { x: a.x + dx * t, y: a.y + dy * t };
+  const dist = Math.hypot(p.x - point.x, p.y - point.y);
+  return { point, dist };
 }

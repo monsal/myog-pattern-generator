@@ -1,11 +1,14 @@
-import { PDFDocument, PDFPage, rgb } from "pdf-lib";
+import type { PDFPage } from "pdf-lib";
 import type { PatternPiece, Project } from "../types";
 import { PAPER_MM, mmToPt } from "./units";
 import { offsetPolygon, pieceBounds, polygonBounds } from "./geometry";
 
-const BLACK = rgb(0, 0, 0);
-const GRAY = rgb(0.55, 0.5, 0.45);
-const ACCENT = rgb(61 / 255, 107 / 255, 143 / 255);
+// pdf-lib is lazy-loaded inside `exportProjectPdf` so the dashboard and editor
+// don't pay for ~300kB until the user actually clicks "Export PDF".
+type Rgb = ReturnType<typeof import("pdf-lib").rgb>;
+let BLACK: Rgb;
+let GRAY: Rgb;
+let ACCENT: Rgb;
 
 type TileLayout = {
   cols: number;
@@ -86,6 +89,11 @@ function polylinePath(page: PDFPage, points: { x: number; y: number }[], dashed 
 }
 
 export async function exportProjectPdf(project: Project): Promise<Uint8Array> {
+  const { PDFDocument, rgb } = await import("pdf-lib");
+  BLACK = rgb(0, 0, 0);
+  GRAY = rgb(0.55, 0.5, 0.45);
+  ACCENT = rgb(61 / 255, 107 / 255, 143 / 255);
+
   const paper = PAPER_MM[project.print.paper];
   const portrait = project.print.orientation === "portrait";
   const paperWmm = portrait ? paper.w : paper.h;

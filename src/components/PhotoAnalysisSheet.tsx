@@ -16,7 +16,22 @@ export default function PhotoAnalysisSheet({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AiAnalysisResult | null>(null);
   const [selected, setSelected] = useState<Record<number, boolean>>({});
+  const [dragOver, setDragOver] = useState(false);
   const addPiece = useStore((s) => s.addPiece);
+
+  // Merge new files in, keeping only images and capping the total at 4.
+  const addFiles = (incoming: File[]) => {
+    const images = incoming.filter((f) => f.type.startsWith("image/"));
+    if (images.length === 0) return;
+    setFiles((prev) => [...prev, ...images].slice(0, 4));
+    setResult(null);
+    setError(null);
+  };
+
+  const removeFile = (idx: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== idx));
+    setResult(null);
+  };
 
   const run = async () => {
     if (files.length === 0) return;
@@ -97,32 +112,69 @@ export default function PhotoAnalysisSheet({
           </div>
 
           <div className="mt-5 grid gap-4">
-            <label className="block">
-              <div className="label mb-1">Photos (up to 4)</div>
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={(e) => {
-                  const list = Array.from(e.target.files ?? []).slice(0, 4);
-                  setFiles(list);
-                  setResult(null);
+            <div className="block">
+              <div className="label mb-1">Photos ({files.length}/4)</div>
+              <label
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(true);
                 }}
-                className="text-sm"
-              />
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(false);
+                  addFiles(Array.from(e.dataTransfer.files));
+                }}
+                className={`spring flex flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed py-7 cursor-pointer ${
+                  dragOver
+                    ? "border-[color:var(--color-accent)] bg-[color:var(--color-accent-soft)]"
+                    : files.length >= 4
+                    ? "border-black/10 opacity-50 cursor-not-allowed"
+                    : "border-black/15 hover:border-[color:var(--color-accent)] hover:bg-black/[0.02]"
+                }`}
+              >
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  disabled={files.length >= 4}
+                  onChange={(e) => {
+                    addFiles(Array.from(e.target.files ?? []));
+                    e.target.value = "";
+                  }}
+                  className="hidden"
+                />
+                <div className="text-2xl">📷</div>
+                <div className="text-sm font-semibold display">
+                  {files.length >= 4
+                    ? "Maximum 4 photos"
+                    : "Drag photos here or click to upload"}
+                </div>
+                <div className="text-xs text-[color:var(--color-ink-3)]">
+                  Different angles help — front, back, side, bottom
+                </div>
+              </label>
               {files.length > 0 && (
                 <div className="mt-2 grid grid-cols-4 gap-2">
                   {files.map((f, i) => (
-                    <img
-                      key={i}
-                      src={URL.createObjectURL(f)}
-                      className="rounded-xl aspect-square object-cover"
-                      alt=""
-                    />
+                    <div key={i} className="relative group">
+                      <img
+                        src={URL.createObjectURL(f)}
+                        className="rounded-xl aspect-square object-cover w-full"
+                        alt=""
+                      />
+                      <button
+                        onClick={() => removeFile(i)}
+                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white shadow-md text-[color:var(--color-ink-2)] hover:text-[color:var(--color-bad)] text-xs flex items-center justify-center spring"
+                        title="Remove"
+                      >
+                        ×
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}
-            </label>
+            </div>
 
             <label className="block">
               <div className="label mb-1">Hint (optional)</div>

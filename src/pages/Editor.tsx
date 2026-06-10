@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useStore } from "../store/projects";
 import Canvas from "../components/Canvas";
@@ -29,6 +29,40 @@ export default function Editor() {
     () => project?.pieces.find((p) => p.id === selectedPieceId) ?? null,
     [project, selectedPieceId]
   );
+
+  // Keyboard: Delete / Backspace removes the selected piece when not in a
+  // text field, and number keys 1-9 jump to a tool.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const inField =
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable);
+      if (inField) return;
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedPieceId && project) {
+        removePiece(project.id, selectedPieceId);
+        setSelectedPieceId(null);
+        e.preventDefault();
+        return;
+      }
+      const shortcuts: Record<string, Tool> = {
+        v: "select",
+        p: "polygon",
+        b: "pen",
+        m: "measure",
+        n: "notch",
+        g: "grain",
+        s: "seam",
+        h: "pan",
+      };
+      const t = shortcuts[e.key.toLowerCase()];
+      if (t) setTool(t);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [project, selectedPieceId, removePiece]);
 
   if (!project) {
     return (
@@ -126,6 +160,16 @@ export default function Editor() {
                 selectedPieceId={selectedPieceId}
                 onSelect={setSelectedPieceId}
               />
+              {project.pieces.length === 0 && (
+                <EmptyEditorHint
+                  onDrawPolygon={() => setTool("polygon")}
+                  onAddRectangle={() => {
+                    const id = addPiece(project.id, { points: rectPoints(180, 240) });
+                    setSelectedPieceId(id);
+                  }}
+                  onAnalysePhoto={() => setShowAi(true)}
+                />
+              )}
             </div>
           )}
           {view !== "2d" && (
@@ -140,6 +184,8 @@ export default function Editor() {
                 project={project}
                 selectedPieceId={selectedPieceId}
                 selectedSeamId={selectedSeamId}
+                onSelectPiece={setSelectedPieceId}
+                onSelectSeam={setSelectedSeamId}
               />
             </div>
           )}
@@ -159,6 +205,48 @@ export default function Editor() {
       {showAi && (
         <PhotoAnalysisSheet projectId={project.id} onClose={() => setShowAi(false)} />
       )}
+    </div>
+  );
+}
+
+function EmptyEditorHint({
+  onDrawPolygon,
+  onAddRectangle,
+  onAnalysePhoto,
+}: {
+  onDrawPolygon: () => void;
+  onAddRectangle: () => void;
+  onAnalysePhoto: () => void;
+}) {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+      <div className="glass rounded-3xl p-7 max-w-md text-center pointer-events-auto">
+        <div className="text-3xl mb-2">✦</div>
+        <div className="display text-xl mb-1">Let's lay out your first piece</div>
+        <div className="text-sm text-[color:var(--color-ink-3)] mb-5">
+          Sketch a polygon, drop in a rectangle, or analyse a reference photo —
+          everything you draw is real-world millimetres.
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <button className="btn lift" onClick={onDrawPolygon}>
+            <div className="text-lg mb-0.5">▱</div>
+            <div className="text-[11px]">Draw polygon</div>
+          </button>
+          <button className="btn lift" onClick={onAddRectangle}>
+            <div className="text-lg mb-0.5">▭</div>
+            <div className="text-[11px]">Add rectangle</div>
+          </button>
+          <button className="btn lift" onClick={onAnalysePhoto}>
+            <div className="text-lg mb-0.5 ai-grad bg-clip-text text-transparent">
+              ✦
+            </div>
+            <div className="text-[11px]">Analyse photo</div>
+          </button>
+        </div>
+        <div className="mt-4 text-[10px] mono text-[color:var(--color-ink-3)]">
+          shortcuts · v select · p polygon · b pen · m measure · s seam · h pan
+        </div>
+      </div>
     </div>
   );
 }

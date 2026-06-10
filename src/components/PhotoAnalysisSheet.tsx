@@ -38,8 +38,22 @@ export default function PhotoAnalysisSheet({
     setBusy(true);
     setError(null);
     try {
-      const res = await analyzePhotos(files, hint || undefined);
+      const raw = await analyzePhotos(files, hint || undefined);
+      // Defensive normalisation in case the API or model returns a partial
+      // shape — the UI always wants arrays it can map over.
+      const res: AiAnalysisResult = {
+        bagType: raw?.bagType ?? "bag",
+        pieces: Array.isArray(raw?.pieces) ? raw.pieces : [],
+        uncertainties: Array.isArray(raw?.uncertainties)
+          ? raw.uncertainties
+          : [],
+      };
       setResult(res);
+      if (res.pieces.length === 0) {
+        setError(
+          "The model didn't identify any structural panels. Try clearer photos or add a hint like 'front view'."
+        );
+      }
       const sel: Record<number, boolean> = {};
       res.pieces.forEach((_, i) => (sel[i] = true));
       setSelected(sel);

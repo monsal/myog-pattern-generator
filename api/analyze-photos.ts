@@ -61,8 +61,46 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .status(500)
         .json({ error: "Model did not return JSON", raw: text });
     }
-    const parsed = JSON.parse(jsonMatch[0]);
-    return res.status(200).json(parsed);
+    let parsed: any;
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch (e) {
+      return res
+        .status(500)
+        .json({ error: "Model JSON was not parseable", raw: text });
+    }
+    // Coerce to the shape the client expects so a partial model response
+    // can't crash the UI. We always return arrays, even if empty.
+    const safe = {
+      bagType: typeof parsed.bagType === "string" ? parsed.bagType : "bag",
+      pieces: Array.isArray(parsed.pieces)
+        ? parsed.pieces
+            .filter((p: any) => p && typeof p === "object")
+            .map((p: any) => ({
+              name: typeof p.name === "string" ? p.name : "Panel",
+              shape:
+                p.shape === "trapezoid" || p.shape === "polygon"
+                  ? p.shape
+                  : "rectangle",
+              proportionalWidth:
+                Number.isFinite(p.proportionalWidth) && p.proportionalWidth > 0
+                  ? Math.min(1, p.proportionalWidth)
+                  : 0.5,
+              proportionalHeight:
+                Number.isFinite(p.proportionalHeight) && p.proportionalHeight > 0
+                  ? Math.min(1, p.proportionalHeight)
+                  : 0.5,
+              confidence: Number.isFinite(p.confidence)
+                ? Math.max(0, Math.min(1, p.confidence))
+                : 0.5,
+              notes: typeof p.notes === "string" ? p.notes : undefined,
+            }))
+        : [],
+      uncertainties: Array.isArray(parsed.uncertainties)
+        ? parsed.uncertainties.filter((u: any) => typeof u === "string")
+        : [],
+    };
+    return res.status(200).json(safe);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Analysis failed";
     return res.status(500).json({ error: msg });

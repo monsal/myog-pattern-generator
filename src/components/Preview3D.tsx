@@ -9,9 +9,17 @@ type Props = {
   project: Project;
   selectedPieceId?: string | null;
   selectedSeamId?: string | null;
+  onSelectPiece?: (id: string | null) => void;
+  onSelectSeam?: (id: string | null) => void;
 };
 
-export default function Preview3D({ project, selectedPieceId, selectedSeamId }: Props) {
+export default function Preview3D({
+  project,
+  selectedPieceId,
+  selectedSeamId,
+  onSelectPiece,
+  onSelectSeam,
+}: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<{
     renderer: THREE.WebGLRenderer;
@@ -125,10 +133,20 @@ export default function Preview3D({ project, selectedPieceId, selectedSeamId }: 
     disposeGroup(seamGroup);
 
     for (const placed of assembly.placed) {
-      pieceGroup.add(buildPanelMesh(placed, placed.piece.id === selectedPieceId));
+      const obj = buildPanelMesh(placed, placed.piece.id === selectedPieceId);
+      obj.userData = { kind: "piece", id: placed.piece.id };
+      obj.traverse((c) => {
+        c.userData = { kind: "piece", id: placed.piece.id };
+      });
+      pieceGroup.add(obj);
     }
     for (const [seamId, line] of Object.entries(assembly.seamLines)) {
-      seamGroup.add(buildSeamLine(line.a, line.b, seamId === selectedSeamId));
+      const obj = buildSeamLine(line.a, line.b, seamId === selectedSeamId);
+      obj.userData = { kind: "seam", id: seamId };
+      obj.traverse((c) => {
+        c.userData = { kind: "seam", id: seamId };
+      });
+      seamGroup.add(obj);
     }
 
     // Frame the camera around the assembly bounds.
@@ -170,6 +188,35 @@ export default function Preview3D({ project, selectedPieceId, selectedSeamId }: 
         ref={mountRef}
         className="absolute inset-0"
         style={{ touchAction: "none" }}
+        onPointerDown={(e) => {
+          const ctx = sceneRef.current;
+          if (!ctx) return;
+          const rect = ctx.renderer.domElement.getBoundingClientRect();
+          if (!rect.width || !rect.height) return;
+          const ndc = new THREE.Vector2(
+            ((e.clientX - rect.left) / rect.width) * 2 - 1,
+            -((e.clientY - rect.top) / rect.height) * 2 + 1
+          );
+          const ray = new THREE.Raycaster();
+          ray.params.Line = { threshold: 8 };
+          ray.setFromCamera(ndc, ctx.camera);
+          // Hit seams first (they're thin, more "intentional" clicks).
+          const seamHits = ray.intersectObjects(ctx.seamGroup.children, true);
+          if (seamHits.length) {
+            const id = seamHits[0].object.userData?.id as string | undefined;
+            if (id && onSelectSeam) {
+              onSelectSeam(id === selectedSeamId ? null : id);
+              return;
+            }
+          }
+          const pieceHits = ray.intersectObjects(ctx.pieceGroup.children, true);
+          if (pieceHits.length) {
+            const id = pieceHits[0].object.userData?.id as string | undefined;
+            if (id && onSelectPiece) onSelectPiece(id);
+          } else {
+            onSelectSeam?.(null);
+          }
+        }}
       />
       <div className="absolute bottom-3 left-3 glass rounded-2xl px-3 py-2 flex items-center gap-2 pointer-events-none">
         <span
